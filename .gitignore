@@ -1,0 +1,6 @@
+build/
+# venv
+venv/
+dist/
+icon.ico
+*.spec

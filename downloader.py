@@ -15,33 +15,37 @@ class YouTubeDownloader:
         self.total_videos = total_videos  # Initialize total_videos
         self.playlist_title = playlist_title  # Initialize playlist_title
         os.makedirs(self.base_dir, exist_ok=True)
+        self.download_count = 0  # Add counter for downloaded files
 
     def progress_hook(self, d):
         if d['status'] == 'downloading':
             try:
+                # Calculate percentage
                 total_bytes = d.get('total_bytes', d.get('total_bytes_estimate', 0))
                 downloaded_bytes = d.get('downloaded_bytes', 0)
+                speed = d.get('speed', 0)
                 
                 if total_bytes > 0:
-                    progress = int((downloaded_bytes / total_bytes) * 100)
-                    if self.progress_callback:
-                        self.progress_callback(progress)
+                    # Convert bytes to MB for better readability
+                    total_mb = total_bytes / (1024 * 1024) if total_bytes else 0
+                    downloaded_mb = downloaded_bytes / (1024 * 1024) if downloaded_bytes else 0
+                    speed_mb = speed / (1024 * 1024) if speed else 0
                     
                     if self.status_callback:
-                        speed = d.get('speed', 0)
-                        if speed:
-                            speed_mb = speed / 1024 / 1024
-                            self.status_callback(
-                                f"جارٍ تحميل الفيديو {self.current_video_index + 1} من {self.total_videos}"
-                                f" ({speed_mb:.1f} MB/s)"
-                            )
+                        status_text = f"تحميل الفيديو {self.download_count + 1} من {self.total_videos}\n"
+                        status_text += f"جارٍ تحميل {downloaded_mb:.1f} MB من {total_mb:.1f} MB - السرعة: {speed_mb:.1f} MB/s"
+                        self.status_callback(status_text)
+                    
             except Exception as e:
                 print(f"Error in progress_hook: {e}")
                 
         elif d['status'] == 'finished':
-            self.current_video_index += 1
-            if self.progress_callback:
-                self.progress_callback(0)  # Reset progress for next video
+            self.download_count += 1
+            if self.status_callback:
+                if self.download_count >= self.total_videos:
+                    self.status_callback("تم الانتهاء من التحميل بالكامل!")
+                else:
+                    self.status_callback(f"تم الانتهاء من تحميل الفيديو {self.download_count} من {self.total_videos}")
 
     def export_to_playlist_folder(self, source_dir):
         """
@@ -72,13 +76,21 @@ class YouTubeDownloader:
 
     def download(self, url, format_type, is_playlist=False):
         try:
-            self.current_video_index = 0
+            self.download_count = 0  # Reset counter at start of download
+            
+            # Determine the appropriate format string based on total_videos
+            if self.total_videos < 10:
+                index_format = '%(autonumber)d_'
+            elif self.total_videos < 100:
+                index_format = '%(autonumber)02d_'
+            else:
+                index_format = '%(autonumber)03d_'
             
             # Download options
             ydl_opts = {
                 'format': format_type,
                 'progress_hooks': [self.progress_hook],
-                'outtmpl': os.path.join(self.output_dir, '%(playlist_index)03d-%(title)s.%(ext)s' if is_playlist else '%(title)s.%(ext)s'),
+               'outtmpl': os.path.join(self.output_dir, (index_format + '%(title)s.%(ext)s') if self.prefix_index else '%(title)s.%(ext)s'),
                 'ignoreerrors': True,
                 'no_warnings': True,
                 'quiet': True,

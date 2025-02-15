@@ -31,15 +31,15 @@ class DownloaderThread(QThread):
     status_updated = pyqtSignal(str)
     download_finished = pyqtSignal(bool, str, str, int)  # Include total_videos
     
-    def __init__(self, url, format_type, is_playlist, prefix_index, progress_callback, status_callback, output_dir):
+    def __init__(self, url, format_type, is_playlist, prefix_index, progress_callback, status_callback, output_dir, total_videos=1):
         super().__init__()
         self.url = url
         self.format_type = format_type
         self.is_playlist = is_playlist
         self.prefix_index = prefix_index
-        self.progress_callback = progress_callback
-        self.status_callback = status_callback
-        self.total_videos = 1  # Initialize total_videos
+        self.progress_callback = lambda p: self.progress_updated.emit(p)  # Convert callback to signal
+        self.status_callback = lambda s: self.status_updated.emit(s)  # Convert callback to signal
+        self.total_videos = total_videos  # Initialize total_videos
         self.playlist_title = ""  # Initialize playlist title
         self.output_dir = output_dir  # Store output directory
     
@@ -47,7 +47,7 @@ class DownloaderThread(QThread):
         try:
             pl = Playlist(self.url)
             self.playlist_title = pl.title
-            self.total_videos = pl.length
+            self.total_videos = pl.length if pl.length > 0 else 1
             playlist_dir = os.path.join(self.output_dir, self.playlist_title)
             os.makedirs(playlist_dir, exist_ok=True)  # Ensure directory exists
         except Exception as e:
@@ -197,15 +197,8 @@ class YouTubeDownloaderApp(QWidget):
         prefix_layout.addWidget(self.prefix_checkbox)
         prefix_layout.addWidget(prefix_label)
         
-        playlist_layout = QHBoxLayout()
-        playlist_layout.setSpacing(2)
-        playlist_label = QLabel("تحميل قائمة التشغيل بالكامل")
-        self.playlist_checkbox = QCheckBox()
-        playlist_layout.addWidget(self.playlist_checkbox)
-        playlist_layout.addWidget(playlist_label)
         
         checkbox_layout.addLayout(prefix_layout)
-        checkbox_layout.addLayout(playlist_layout)
         checkbox_frame.setLayout(checkbox_layout)
         main_layout.addWidget(checkbox_frame)
 
@@ -217,9 +210,20 @@ class YouTubeDownloaderApp(QWidget):
         self.playlist_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.playlist_title_label)
         
-        # Overall Progress
-        self.overall_progress_bar = ModernProgressBar()
-        progress_layout.addWidget(self.overall_progress_bar)
+        # Status label with improved styling
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                padding: 15px;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+                border: 1px solid #dcdde1;
+                min-height: 30px;
+            }
+        """)
+        progress_layout.addWidget(self.status_label)
         
         progress_frame.setLayout(progress_layout)
         main_layout.addWidget(progress_frame)
@@ -244,9 +248,8 @@ class YouTubeDownloaderApp(QWidget):
         self.setLayout(main_layout)
 
     def update_overall_progress(self, video_progress):
-        if self.total_videos > 0:
-            overall_progress = ((self.current_video_index * 100) + video_progress) / self.total_videos
-            self.overall_progress_bar.setValue(int(overall_progress))
+        # This method can stay empty or be removed since we're not using progress bar
+        pass
 
     def update_status_label(self, message):
         self.status_label.setText(message)
@@ -270,10 +273,13 @@ class YouTubeDownloaderApp(QWidget):
 
         self.download_button.setEnabled(False)
         self.status_label.setText("جارٍ بدء التحميل...")
+        self.playlist_title_label.clear()  # Clear the playlist title label
+        self.status_label.clear()  # Clear the status label
         self.current_video_index = 0
-        self.overall_progress_bar.setValue(0)
+        # Remove progress bar reset
+        # self.overall_progress_bar.setValue(0)
         
-        is_playlist = self.playlist_checkbox.isChecked()
+        is_playlist = False
         
         # Pass callbacks directly to the thread
         self.downloader_thread = DownloaderThread(
@@ -281,17 +287,20 @@ class YouTubeDownloaderApp(QWidget):
             format_type, 
             is_playlist, 
             prefix_index,
-            progress_callback=self.update_overall_progress,
-            status_callback=self.update_status_label,
-            output_dir=self.output_dir  # Pass output_dir
+            self.update_overall_progress,
+            self.update_status_label,
+            self.output_dir,  # Pass output_dir
+            total_videos=1
         )
         
+        self.downloader_thread.progress_updated.connect(self.update_overall_progress)
+        self.downloader_thread.status_updated.connect(self.update_status_label)
         self.downloader_thread.download_finished.connect(self.on_download_finished)
         self.downloader_thread.start()
 
     def on_download_finished(self, success, output_dir, playlist_title, total_videos):
-        self.playlist_title = playlist_title  # Store playlist title
-        self.set_total_videos(playlist_title, total_videos)  # Set playlist title and total videos
+        self.playlist_title = playlist_title
+        self.set_total_videos(playlist_title, total_videos)
         if success:
             self.status_label.setText("اكتمل التحميل بنجاح!")
             try:
@@ -302,7 +311,6 @@ class YouTubeDownloaderApp(QWidget):
             self.status_label.setText("حدث خطأ أثناء التحميل.")
         
         self.download_button.setEnabled(True)
-        self.overall_progress_bar.setValue(0)
         self.url_input.clear()  # Clear the text field after download
 
 if __name__ == "__main__":
