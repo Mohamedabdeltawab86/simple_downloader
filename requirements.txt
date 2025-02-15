@@ -5,6 +5,3 @@ PyQt6_sip==13.10.0
 tqdm==4.67.1
 yt-dlp==2025.1.26
 pytube
-
-
-python -m PyInstaller --onefile --name "YouTube Playlist Downloader" --noconsole main.py --icon=icon.ico
